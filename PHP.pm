@@ -1,6 +1,6 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.8 2005/02/16 14:16:19 dk Exp $
+# $Id: PHP.pm,v 1.12 2005/02/25 10:14:26 dk Exp $
 
 use strict;
 require DynaLoader;
@@ -10,7 +10,7 @@ use vars qw($VERSION @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.03';
+$VERSION = '0.04';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -70,7 +70,8 @@ sub new
 {
 	my ( $class, $php_class, @params) = @_;
 	my $self = $class-> _new( $php_class);
-	PHP::exec( 1, $php_class, $self, @params);
+	PHP::exec( 1, $php_class, $self, @params)
+		if PHP::exec( 0, 'method_exists', $self, $php_class);
 	return $self;
 }
 
@@ -129,7 +130,7 @@ PHP - embedded PHP interpreter
 =head1 DESCRIPTION
 
 The module makes it possible to execute PHP code, call PHP functions and methods,
-manipulating PHP arrays, and create PHP objects.
+manipulate PHP arrays, and create PHP objects.
 
 =head1 SYNOPSIS
 
