@@ -1,6 +1,6 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.1.1.1 2005/02/14 16:08:39 dk Exp $
+# $Id: PHP.pm,v 1.6 2005/02/15 17:09:14 dk Exp $
 
 use strict;
 require DynaLoader;
@@ -10,7 +10,7 @@ use vars qw($VERSION @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.01';
+$VERSION = '0.02';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -50,25 +50,28 @@ sub CREATE
 	return $self;
 }
 
+sub tie
+{
+	my ( $self, $tie_to) = @_;
+	if ( ref( $tie_to) eq 'HASH') {
+		tie %$tie_to, 'PHP::TieHash', $self;
+	} elsif ( ref( $tie_to) eq 'ARRAY') {
+		tie @$tie_to, 'PHP::TieArray', $self;
+	} else {
+		die "PHP::Array::tie: Can't tie to ", ref($tie_to), "\n";
+	}
+}
+
 package PHP::Object;
 use vars qw(@ISA);
 @ISA = qw(PHP::Entity);
 
-my $export__new;
-
 sub new
 {
-	my ( $dummy, $class, @params) = @_;
-	
-	PHP::eval(<<NEW), $export__new = 1
-function __new(\$class)
-{
-	return new \$class;
-}
-NEW
-		unless $export__new;
-	
-	PHP::exec( 0, '__new', $class, @params);
+	my ( $class, $php_class, @params) = @_;
+	my $self = $class-> _new( $php_class);
+	PHP::exec( 1, $php_class, $self, @params);
+	return $self;
 }
 
 sub AUTOLOAD
@@ -82,18 +85,6 @@ sub AUTOLOAD
 package PHP::Array;
 use vars qw(@ISA);
 @ISA = qw(PHP::Entity);
-
-sub tie
-{
-	my ( $self, $tie_to) = @_;
-	if ( ref( $tie_to) eq 'HASH') {
-		tie %$tie_to, 'PHP::TieHash', $self;
-	} elsif ( ref( $tie_to) eq 'ARRAY') {
-		tie @$tie_to, 'PHP::TieArray', $self;
-	} else {
-		die "PHP::Array::tie: Can't tie to ", ref($tie_to), "\n";
-	}
-}
 
 package PHP::TieHash;
 
@@ -144,18 +135,17 @@ manipulating PHP arrays, and create PHP objects.
 
 	use PHP;
 
-	# 1 - general use
+General use
 
-	# 1.1
 	# evaluate arbitrary PHP code; exception is thrown
-	# and can be catched via standard eval{}/$@ block 
+	# and can be caught via standard eval{}/$@ block 
 	PHP::eval(<<EVAL);
 	function print_val(\$arr,\$val) {
 		echo \$arr[\$val];
 	}
 	
 	class TestClass {
-		function TestClass () {}
+		function TestClass ( $param ) {}
 		function method(\$val) { return \$val + 1; }
 	};
 	EVAL
@@ -166,7 +156,8 @@ manipulating PHP arrays, and create PHP objects.
 	});
 	PHP::eval('echo 42;');
 
-	# 2 - arrays
+Arrays
+
 	# create a php array
 	my $array = PHP::array();
 	# tie it either to an array or a hash
@@ -180,13 +171,18 @@ manipulating PHP arrays, and create PHP objects.
 
 	# pass arrays to function
 	# Note - function name is not known by perl in advance, and
-	# is called via DUTOLOAD
+	# is called via AUTOLOAD
 	PHP::print_val($a, 1);
 	PHP::print_val($a, 2);
 
-	# 3 - classes
+Objects and properties
+
 	my $TestClass = PHP::Object-> new('TestClass');
 	print $TestClass-> method(42), "\n";
+	
+	$TestClass-> tie(\%hash);
+	# set a property
+	$hash{new_prop} = 'string';
 
 =head1 API
 
@@ -206,18 +202,35 @@ Shortcuts to the identical PHP constructs.
 Returns a handle to a newly created PHP array of type C<PHP::Array>.
 The handle can be later tied with perl hashes or arrays via C<tie> call.
 
-=item PHP::Array::tie $array_handle, $tie_to
-
-Ties existing handle to a PHP array to either a perl hash or a perl array.
-The tied hash or array can be used to access PHP pseudo_hash values indexed
-either by string or integer value.
-
-=item PHP::Object::new $class_name
+=item PHP::Object->new($class_name, @parameters)
 
 Instantiates a PHP object of PHP class $class_name and returns a handle to it.
-The methods of the PHP class can be called directly via the handle:
+The methods of the class can be called directly via the handle:
 
-	my $obj = PHP::Object-> new();
+	my $obj = PHP::Object-> new( 'MyClass', @params_to_constructor);
+	$object-> method( @some_params);
+
+
+=item PHP::Entity->tie($array_handle, $tie_to)
+
+Ties existing handle to a PHP entity to either a perl hash or a perl array.
+The tied hash or array can be used to access PHP pseudo_hash values indexed
+either by string or integer value. 
+
+The PHP entity can be either an array, represented by C<PHP::Array>, or
+an object, represented by C<PHP::Object>. In the latter case, the object 
+properties are represented as hash/array values.
+
+=item PHP::Entity->link($original, $link)
+
+Records a reference to an arbitrary perl scalar $link as an
+alias to $original C<PHP::Entity> object. This is used internally
+by C<PHP::TieHash> and C<PHP::TieArray>, but might be also used
+for other purposes.
+
+=item PHP::Entity::unlink($link)
+
+Removes association between a C<PHP::Entity> object and $link.
 
 =item PHP::options
 
@@ -231,11 +244,12 @@ the associated value.
 =item debug $integer
 
 If set, loads of debugging information are dumped to stderr
+
 Default: 0
 
 =item stdout/stderr $callback
 
-C<stdout> and C<stderr> options define callback that are called
+C<stdout> and C<stderr> options define callbacks that are called
 when PHP decides to print something or complain, respectively.
 
 Default: undef
@@ -246,20 +260,37 @@ Default: undef
 
 =head1 DEBUGGING
 
-Environment variable C<P5PHPDEBUG> is set to 1, turns the debug mode on. The
+Environment variable C<P5PHPDEBUG>, if set to 1, turns the debug mode on. The
 same effect can be achieved programmatically by calling
 
 	PHP::options( debug => 1);
 
 =head1 INSTALLATION
 
-The module uses php-embed SAPI extension to interoprate with PHP interpreter.
+The module uses php-embed SAPI extension to inter-operate with PHP interpreter.
 That means php must be configured with '--enable-embed' parameters prior to
 using the module.
 
 The C<sub dl_load_flags { 0x01 }> code in F<PHP.pm> is required for PHP
-to load correctly its extenstions. If your platform does RTLD_GLOBAL by
+to load correctly its extensions. If your platform does RTLD_GLOBAL by
 default and croaks upon this line, it is safe to remove the line.
+
+=head1 WHY?
+
+While I do agree that in general it is absolutely pointless to use PHP
+functionality from within Perl, scenarios where one must connect an existing
+PHP codebase to something else, are not something unusual. Also, this module
+might be handy for people who know PHP but afraid to switch to Perl, or want to
+reuse their old PHP code.
+
+Currently, not all PHP functionality is implemented, but OTOH I don't really
+expect this module to grow that big, because I believe it is easier to call
+C<PHP::eval> rather than implement all the subtleties of Zend API. There are no
+callbacks to Perl from PHP code, and I don't think these are needed, because
+one thing is to be lazy and not to rewrite PHP code, and another is to make new
+code in PHP that uses Perl when PHP is not enough. As I see it, the latter
+would kill all incentive to switch to Perl, so I'd rather leave callbacks
+unimplemented.
 
 =head1 SEE ALSO
 
