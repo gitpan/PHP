@@ -1,5 +1,5 @@
 /*
-$Id: PHP.c,v 1.2 2005/02/15 16:11:26 dk Exp $
+$Id: PHP.c,v 1.4 2005/02/16 14:14:32 dk Exp $
 */
 #include "PHP.h"
 
@@ -131,11 +131,12 @@ XS(PHP_Object__new)
 	dXSARGS;
 	STRLEN i, len;
 	zval * object;
-	zend_class_entry * 
 #if PHP_MAJOR_VERSION > 4
-		*
+#define ZCLASSPTR *zclass
+#else
+#define ZCLASSPTR zclass
 #endif
-		zclass;
+	zend_class_entry * ZCLASSPTR; 
 	char *class, *save_class, uclass[2048], *uc;
 
 	if ( items != 2)
@@ -157,14 +158,12 @@ XS(PHP_Object__new)
 
 	MAKE_STD_ZVAL( object);
 
-	object_init_ex( object, 
-#if PHP_MAJOR_VERSION > 4
-		*
-#endif
-		zclass);
+	object_init_ex( object, ZCLASSPTR);
 
 	XPUSHs( sv_2mortal( Entity_create( SvPV( ST(0), len), object)));
 	PUTBACK;
+#undef ZCLASSPTR
+
 	return;
 }
 
@@ -499,10 +498,10 @@ XS(PHP_eval)
 XS(PHP_options)
 {
 	dXSARGS;
-	(void)items;
-
-	char * c;
 	STRLEN na;
+	char * c;
+
+	(void)items;
 
 	if ( items > 2) 
 		croak("PHP::options: must be 0, 1, or 2 parameters");
