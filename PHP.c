@@ -1,5 +1,5 @@
 /*
-$Id: PHP.c,v 1.5 2005/02/23 11:13:28 dk Exp $
+$Id: PHP.c,v 1.10 2005/03/02 15:43:03 dk Exp $
 */
 #include "PHP.h"
 
@@ -140,7 +140,7 @@ XS(PHP_Object__new)
 	char *class, *save_class, uclass[2048], *uc;
 
 	if ( items != 2)
-		croak("PHP::Object::new: 2 parameter expected");
+		croak("PHP::Object::new: 2 parameters expected");
 	
 	save_class = class = SvPV( ST( 1), len);
 
@@ -163,6 +163,26 @@ XS(PHP_Object__new)
 	XPUSHs( sv_2mortal( Entity_create( SvPV( ST(0), len), object)));
 	PUTBACK;
 #undef ZCLASSPTR
+
+	return;
+}
+
+XS(PHP_stringify)
+{
+	dXSARGS;
+	SV * sv;
+	char str[32];
+
+	if ( items != 1)
+		croak("PHP::stringify: 1 parameter expected");
+
+	sv = ST(0);
+	if ( !SvROK( sv))
+		croak("PHP::stringify: not a reference passed");
+	sprintf( str, "PHP(0x%x)", (unsigned int) SvRV( sv));
+
+	XPUSHs( sv_2mortal( newSVpv( str, strlen( str))));
+	PUTBACK;
 
 	return;
 }
@@ -205,14 +225,28 @@ sv2zval( SV * sv, zval * zarg, int suggested_type )
 		int type;
 		
 		if ( suggested_type < 0) {
-			if ( SvIOK( sv))
+			if ( SvIOK( sv)) {
 				type = SVt_IV;
-			else if ( SvNOK( sv)) 
+				DEBUG("%s: sensed IV", "sv2zval");
+			} else if ( SvNOK( sv)) {
 				type = SVt_NV;
-			else if ( SvPOK( sv)) 
+				DEBUG("%s: sensed NV", "sv2zval");
+			} else if ( SvPOK( sv)) {
 				type = SVt_PV;
-			else
+				DEBUG("%s: sensed PV", "sv2zval");
+			} else if ( SvIOKp( sv)) {
+				type = SVt_IV;
+				DEBUG("%s: forcibly sensed IV", "sv2zval");
+			} else if ( SvNOKp( sv)) {
+				type = SVt_NV;
+				DEBUG("%s: forcibly sensed NV", "sv2zval");
+			} else if ( SvPOKp( sv)) {
+				type = SVt_PV;
+				DEBUG("%s: forcibly sensed PV", "sv2zval");
+			} else {
 				type = -1;
+				DEBUG("%s: sensed nothing", "sv2zval");
+			}
 		} else {
 			type = suggested_type; 
 		}
@@ -299,6 +333,7 @@ XS(PHP_Entity_DESTROY)
 {
 	dXSARGS;
 	zval * obj;
+	HE * he;
 
 	if ( !initialized) /* if called after PHP::done */
 		XSRETURN_EMPTY;
@@ -311,6 +346,19 @@ XS(PHP_Entity_DESTROY)
 
 	DEBUG("delete object 0x%x", obj);
 	hv_delete_zval( z_objects, SvRV( ST(0)), 1);
+
+	/* remove links */
+	hv_iterinit( z_links);
+	for (;;)
+	{
+		if (( he = hv_iternext( z_links)) == NULL) 
+			break;
+		if ( obj == ( zval*) HeVAL( he)) {
+			HeVAL( he) = &PL_sv_undef;
+			hv_delete( z_links, HeKEY( he), HeKLEN( he), G_DISCARD);
+			DEBUG("delete link 0x%x", HeKEY( he));
+		}
+	}
 	
 	PUTBACK;
 	XSRETURN_EMPTY;
@@ -450,7 +498,8 @@ XS(PHP_exec)
 			croak("%s", eval_buf);
 		else
 			croak("%s: function %s call failed", METHOD, SvPV(ST(1), len));
-	}
+	} else if ( eval_buf[0])
+		warn("%s", eval_buf);
 
 	/* read and parse results */
 	SPAGAIN;
@@ -491,8 +540,10 @@ XS(PHP_eval)
 		ret = zend_eval_string( SvPV( ST(0), na), NULL, "Embedded code" TSRMLS_CC);
 	} zend_end_try();
 	PHP_EVAL_LEAVE;
-	if ( ret == FAILURE)
+	if ( ret == FAILURE) {
 		croak( "%s", eval_buf[0] ? eval_buf : "PHP::eval failed");
+	} else if ( eval_buf[0])
+		warn("%s", eval_buf);
 	
 	PUTBACK;
 	XSRETURN_EMPTY;
@@ -568,12 +619,15 @@ XS(PHP_options)
 	XSRETURN_EMPTY;
 }
 
-/* collect php warnings */
+/* process php warnings; save the last warning for the eventual croak */
 static void
 mod_log_message( char * message)
 {
-	if ( eval_ptr) 
-		strlcat( eval_ptr, message, PHP_EVAL_BUFSIZE);
+	if ( eval_ptr) {
+		if ( *eval_ptr && !stderr_hook)
+			warn("%s", eval_ptr);
+		strlcpy( eval_ptr, message, PHP_EVAL_BUFSIZE);
+	}
 
 	if ( stderr_hook) {
 		dSP;
@@ -685,6 +739,8 @@ XS( boot_PHP)
 	
 	newXS( "PHP::exec", PHP_exec, "PHP");
 	newXS( "PHP::eval", PHP_eval, "PHP");
+	
+	newXS( "PHP::stringify", PHP_stringify, "PHP");
 	
 	newXS( "PHP::Entity::DESTROY", PHP_Entity_DESTROY, "PHP::Entity");
 	newXS( "PHP::Entity::link", PHP_Entity_link, "PHP::Entity");
