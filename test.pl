@@ -1,6 +1,6 @@
-#$Id: test.pl,v 1.5 2005/03/02 15:43:03 dk Exp $
+#$Id: test.pl,v 1.8 2005/03/16 16:09:33 dk Exp $
 
-use Test::More tests => 20;
+use Test::More tests => 21;
 use strict;
 
 BEGIN { use_ok('PHP'); }
@@ -63,8 +63,8 @@ my $a = PHP::new_array();
 ok( $a, 'get array from php');
 
 # 9
-my $b = PHP::array();
-ok( $b, 'create array');
+my $b = PHP::ArrayHandle-> new();
+ok( $b, 'create array handle');
 
 my ( @array, %hash);
 $a->tie(\%hash);
@@ -110,11 +110,15 @@ PHP::eval('call_unexistent_function_wekljfhv2kwfwkfvbwkfbvwjkfefv();');
 ok($@ && $@ =~ /call_unexistent_function/, 'undefined function exceptions');
 
 # 19
-my $arr = PHP::hash;
+my $arr = PHP::array;
 $arr->[1] = 42;
 ok( $arr->[1] == 42, 'pseudo-hash, as array');
 
 # 20
 $arr->{'mm'} = 42;
 ok( $arr->{'mm'} == 42, 'pseudo-hash, as hash');
+
+# 21
+my @k = keys %$arr;
+ok(( 2 == @k and 2 == scalar grep { m/^(1|mm)$/ } @k), 'hash keys');
 undef $arr;

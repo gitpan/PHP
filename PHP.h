@@ -1,5 +1,5 @@
 /*
-$Id: PHP.h,v 1.2 2005/02/16 13:46:53 dk Exp $
+$Id: PHP.h,v 1.4 2005/03/16 16:09:33 dk Exp $
 */
 
 #ifndef __P5PHP_H__
@@ -9,6 +9,13 @@ $Id: PHP.h,v 1.2 2005/02/16 13:46:53 dk Exp $
 #include <EXTERN.h>
 #include <perl.h>
 #include <XSUB.h>
+
+/*
+If 1, php functions returning arrays to perl, will pass
+a PHP::PseudoHash instance to perl. 
+If 0, it will be PHP::Array, for the backward compatibility 
+*/
+#define RETURN_PHP_ARRAY_AS_PERL_PSEUDOHASH 1
 
 #define SV2ZANY(sv) get_php_entity(sv, -1)
 #define SV2ZARRAY(sv) get_php_entity(sv, IS_ARRAY)
@@ -27,7 +34,7 @@ p5PHP_debug( char * format, ...);
 
 #define Entity_create p5PHP_Entity_create
 extern SV * 
-p5PHP_Entity_create( char * class, void * data);
+p5PHP_Entity_create( char * class, zval * data);
 
 #define get_php_entity p5PHP_get_php_entity
 extern zval * 

@@ -1,5 +1,5 @@
 /*
-$Id: PHP.c,v 1.10 2005/03/02 15:43:03 dk Exp $
+$Id: PHP.c,v 1.12 2005/03/16 16:09:33 dk Exp $
 */
 #include "PHP.h"
 
@@ -99,7 +99,7 @@ hv_destroy_zval( HV * h, int kill)
 
 /* create a blessed instance of PHP::Entity */
 SV *
-Entity_create( char * class, void * data)
+Entity_create( char * class, zval * data)
 {
 	SV * obj, * mate;
 	dSP;
@@ -116,6 +116,7 @@ Entity_create( char * class, void * data)
 		croak("PHP::Entity::create: something really bad happened");
 	obj = newRV_inc( mate);
 	hv_store_zval( z_objects, mate, data, 1);
+	ZVAL_ADDREF( data);
 	PUTBACK;
 	FREETMPS;
 	LEAVE;
@@ -318,7 +319,29 @@ zval2sv( zval * zobj)
 		return newSVpv( Z_STRVAL( *zobj), Z_STRLEN( *zobj));
 	case IS_ARRAY: 
 		DEBUG("%s: ARRAY %x ref=%d", "zval2sv", zobj, zobj-> refcount);
-		return Entity_create( "PHP::Array", zobj);
+		if ( RETURN_PHP_ARRAY_AS_PERL_PSEUDOHASH) {
+			SV * array_handle, * obj;
+			dSP;
+		
+			array_handle = Entity_create( "PHP::ArrayHandle", zobj);
+			
+			ENTER;
+			SAVETMPS;
+			PUSHMARK( sp);
+			XPUSHs( sv_2mortal( newSVpv( "PHP::Array", 0)));
+			XPUSHs( sv_2mortal( array_handle ));
+			PUTBACK;
+			perl_call_method( "new", G_SCALAR);
+			SPAGAIN;
+			obj = newSVsv( POPs);
+			PUTBACK;
+			FREETMPS;
+			LEAVE;
+
+			return obj;
+		} else {
+			return Entity_create( "PHP::ArrayHandle", zobj);
+		}
 	case IS_OBJECT:		
 		DEBUG("%s: OBJECT %x ref=%d", "zval2sv", zobj, zobj-> refcount);
 		return Entity_create( "PHP::Object", zobj);
@@ -345,6 +368,7 @@ XS(PHP_Entity_DESTROY)
 		croak("PHP::Entity::destroy: not a PHP entity");
 
 	DEBUG("delete object 0x%x", obj);
+	ZVAL_DELREF( obj);
 	hv_delete_zval( z_objects, SvRV( ST(0)), 1);
 
 	/* remove links */
