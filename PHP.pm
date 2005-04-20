@@ -1,6 +1,6 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.18 2005/03/16 16:11:29 dk Exp $
+# $Id: PHP.pm,v 1.20 2005/04/20 15:36:39 dk Exp $
 
 use strict;
 require DynaLoader;
@@ -10,7 +10,7 @@ use vars qw($VERSION @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.06';
+$VERSION = '0.07';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -101,6 +101,8 @@ sub UNTIE
 	PHP::Entity::unlink( $_[0] );
 }
 
+sub DESTROY { goto &UNTIE }
+
 package PHP::TieArray;
 
 sub TIEARRAY
@@ -118,6 +120,7 @@ sub UNTIE
 
 sub EXTEND {}
 sub STORESIZE {}
+sub DESTROY { goto &UNTIE }
 
 package PHP::Array;
 
@@ -332,6 +335,10 @@ when PHP decides to print something or complain, respectively.
 
 Default: undef
 
+=item version
+
+Read-only option; returns the version of PHP library compiled with .
+
 =back
 
 =back
@@ -360,10 +367,10 @@ default and croaks upon this line, it is safe to remove the line.
 While I do agree that in general it is absolutely pointless to use PHP
 functionality from within Perl, scenarios where one must connect an existing
 PHP codebase to something else, are not something unusual. Also, this module
-might be handy for people who know PHP but afraid to switch to Perl, or want to
+might be handy for people who know PHP but are afraid of switching to Perl, or want to
 reuse their old PHP code.
 
-Currently, not all PHP functionality is implemented, but OTOH I don't really
+Currently, not all of PHP functionality is implemented, but OTOH I don't really
 expect this module to grow that big, because I believe it is easier to call
 C<PHP::eval> rather than implement all the subtleties of Zend API. There are no
 callbacks to Perl from PHP code, and I don't think these are needed, because
@@ -371,6 +378,14 @@ one thing is to be lazy and not to rewrite PHP code, and another is to make new
 code in PHP that uses Perl when PHP is not enough. As I see it, the latter
 would kill all incentive to switch to Perl, so I'd rather leave callbacks
 unimplemented.
+
+=head1 BUGS
+
+Objects created from Perl ( via C<PHP::Object->new()> ) didn't get their
+constructor called if it is defined in PHP5 style, C<__construct>. The 
+PHP4-defined constructor is called though o.k., and as well PHP5-defined
+destructor <__destruct> also. To workaround this, instantiate a new object
+from PHP code and return the new object.
 
 =head1 SEE ALSO
 
