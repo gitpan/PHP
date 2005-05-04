@@ -82,12 +82,12 @@ API
         Returns a handle to a newly created "PHP::Array" object, which can
         be accessed both as array and hash reference:
 
-                $_ = PHP::hash;
+                $_ = PHP::array;
                 $_->[42] = 'hello';
                 $_->{world} = '!';
 
-        $REFERENCE is a "PHP::ArrayHandle" instance, then the newly created
-        object is a pheudo-hash alias to the PHP array behind the
+        If $REFERENCE is a "PHP::ArrayHandle" instance, then the newly
+        created object is a pheudo-hash alias to the PHP array behind the
         $REFERENCE. If no $REFERENCE is given, a new PHP array is created.
 
     PHP::Object->new($class_name, @parameters)
@@ -97,6 +97,11 @@ API
 
                 my $obj = PHP::Object-> new( 'MyClass', @params_to_constructor);
                 $object-> method( @some_params);
+
+        The relevant class constructor is called, if available, according to
+        PHP specification, that is different between v4 and v5. The v4
+        constructor has identical name with the class name; the v5
+        constructor can also be named "__construct".
 
     PHP::Entity->tie($array_handle, $tie_to)
         Ties existing handle to a PHP entity to either a perl hash or a perl
@@ -118,7 +123,7 @@ API
         Removes association between a "PHP::Entity" object and $link.
 
     PHP::Array->tie($self, $tie_to)
-        Same as PHP::Entity-tie>, but operates on "PHP::Array" objects.
+        Same as PHP::Entity->tie, but operates on "PHP::Array" objects.
 
     PHP::Array->handle
         Returns PHP array handle, a "PHP::ArrayHandle" object.
@@ -177,13 +182,6 @@ WHY?
     rewrite PHP code, and another is to make new code in PHP that uses Perl
     when PHP is not enough. As I see it, the latter would kill all incentive
     to switch to Perl, so I'd rather leave callbacks unimplemented.
-
-BUGS
-    Objects created from Perl ( via "PHP::Object-"new()> ) didn't get their
-    constructor called if it is defined in PHP5 style, "__construct". The
-    PHP4-defined constructor is called though o.k., and as well PHP5-defined
-    destructor <__destruct> also. To workaround this, instantiate a new
-    object from PHP code and return the new object.
 
 SEE ALSO
     Using Perl code from PHP:

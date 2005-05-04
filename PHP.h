@@ -1,14 +1,17 @@
 /*
-$Id: PHP.h,v 1.4 2005/03/16 16:09:33 dk Exp $
+$Id: PHP.h,v 1.6 2005/05/03 16:12:50 dk Exp $
 */
 
 #ifndef __P5PHP_H__
 #define __P5PHP_H__
 
-#include <php_embed.h>
 #include <EXTERN.h>
 #include <perl.h>
 #include <XSUB.h>
+#undef START_EXTERN_C
+#undef END_EXTERN_C
+#undef assert
+#include <php_embed.h>
 
 /*
 If 1, php functions returning arrays to perl, will pass

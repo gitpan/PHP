@@ -1,12 +1,16 @@
 /* 
 
-$Id: array.c,v 1.6 2005/03/16 16:09:33 dk Exp $ 
+$Id: array.c,v 1.8 2005/05/03 07:50:34 dk Exp $ 
 
 Implemenmtation of PHP::TieHash and PHP::TieArray methods
 
 */
 
 #include "PHP.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 XS(PHP_ArrayHandle_new)
 {
@@ -24,6 +28,7 @@ XS(PHP_ArrayHandle_new)
 
 	XPUSHs( sv_2mortal( Entity_create( SvPV( ST(0), na), array)));
 	PUTBACK;
+	ZVAL_DELREF( array);
 	return;
 }
 
@@ -445,3 +450,7 @@ register_PHP_Array()
 	newXS( "PHP::TieArray::DELETE",	PHP_TieArray_DELETE,	"PHP::TieArray");
 	newXS( "PHP::TieArray::CLEAR",	PHP_TieHash_CLEAR,	"PHP::TieArray");
 }
+
+#ifdef __cplusplus
+}
+#endif

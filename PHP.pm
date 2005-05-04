@@ -1,19 +1,20 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.20 2005/04/20 15:36:39 dk Exp $
+# $Id: PHP.pm,v 1.23 2005/05/03 07:55:23 dk Exp $
 
 use strict;
 require DynaLoader;
-use vars qw($VERSION @ISA);
+use vars qw($VERSION $v5 @ISA);
 @ISA = qw(DynaLoader);
 
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.07';
+$VERSION = '0.08';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
+$v5 = 1 if PHP::options( 'version') =~ /^(\d+)/ and $1 > 4;
 
 sub END
 {
@@ -69,8 +70,11 @@ sub new
 {
 	my ( $class, $php_class, @params) = @_;
 	my $self = $class-> _new( $php_class);
-	PHP::exec( 1, $php_class, $self, @params)
-		if PHP::exec( 0, 'method_exists', $self, $php_class);
+	if ( PHP::exec( 0, 'method_exists', $self, $php_class)) {
+		PHP::exec( 1, $php_class, $self, @params)
+	} elsif ( $PHP::v5 and PHP::exec( 0, 'method_exists', $self, '__construct')) {
+		PHP::exec( 1, '__construct', $self, @params)
+	}
 	return $self;
 }
 
@@ -267,11 +271,11 @@ Shortcuts to the identical PHP constructs.
 Returns a handle to a newly created C<PHP::Array> object, which 
 can be accessed both as array and hash reference:
 
-	$_ = PHP::hash;
+	$_ = PHP::array;
 	$_->[42] = 'hello';
 	$_->{world} = '!';
 
-$REFERENCE is a C<PHP::ArrayHandle> instance, then the newly created object
+If $REFERENCE is a C<PHP::ArrayHandle> instance, then the newly created object
 is a pheudo-hash alias to the PHP array behind the $REFERENCE. If no 
 $REFERENCE is given, a new PHP array is created.
 
@@ -283,6 +287,11 @@ The methods of the class can be called directly via the handle:
 	my $obj = PHP::Object-> new( 'MyClass', @params_to_constructor);
 	$object-> method( @some_params);
 
+
+The relevant class constructor is called, if available, according to PHP
+specification, that is different between v4 and v5. The v4 constructor has
+identical name with the class name; the v5 constructor can also be named
+C<__construct>.
 
 =item PHP::Entity->tie($array_handle, $tie_to)
 
@@ -307,7 +316,7 @@ Removes association between a C<PHP::Entity> object and $link.
 
 =item PHP::Array->tie($self, $tie_to)
 
-Same as L<PHP::Entity->tie>, but operates on C<PHP::Array> objects.
+Same as L<< PHP::Entity->tie >>, but operates on C<PHP::Array> objects.
 
 =item PHP::Array->handle
 
@@ -378,14 +387,6 @@ one thing is to be lazy and not to rewrite PHP code, and another is to make new
 code in PHP that uses Perl when PHP is not enough. As I see it, the latter
 would kill all incentive to switch to Perl, so I'd rather leave callbacks
 unimplemented.
-
-=head1 BUGS
-
-Objects created from Perl ( via C<PHP::Object->new()> ) didn't get their
-constructor called if it is defined in PHP5 style, C<__construct>. The 
-PHP4-defined constructor is called though o.k., and as well PHP5-defined
-destructor <__destruct> also. To workaround this, instantiate a new object
-from PHP code and return the new object.
 
 =head1 SEE ALSO
 

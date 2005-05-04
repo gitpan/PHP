@@ -1,7 +1,11 @@
 /*
-$Id: PHP.c,v 1.14 2005/04/20 15:36:39 dk Exp $
+$Id: PHP.c,v 1.16 2005/05/03 07:50:34 dk Exp $
 */
 #include "PHP.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 int opt_debug = 0;
 
@@ -170,6 +174,7 @@ XS(PHP_Object__new)
 	XPUSHs( sv_2mortal( Entity_create( SvPV( ST(0), len), object)));
 	PUTBACK;
 #undef ZCLASSPTR
+	ZVAL_DELREF( object);
 
 	return;
 }
@@ -357,7 +362,6 @@ XS(PHP_Entity_DESTROY)
 {
 	dXSARGS;
 	zval * obj;
-	/* HE * he; */
 
 	if ( !initialized) /* if called after PHP::done */
 		XSRETURN_EMPTY;
@@ -783,3 +787,6 @@ XS( boot_PHP)
 	XSRETURN(1);
 }
 
+#ifdef __cplusplus
+}
+#endif
