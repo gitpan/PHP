@@ -1,6 +1,6 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.25 2006/12/07 23:38:38 dk Exp $
+# $Id: PHP.pm,v 1.27 2007/02/12 11:00:48 dk Exp $
 
 use strict;
 require DynaLoader;
@@ -10,7 +10,7 @@ use vars qw($VERSION $v5 @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.10';
+$VERSION = '0.11';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -394,13 +394,11 @@ Using Perl code from PHP: L<http://www.zend.com/php5/articles/php5-perl.php>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2005 catpipe Systems ApS. All rights reserved.
-
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
 
 =head1 AUTHOR
 
-Dmitry Karasik <dk@catpipe.net>
+Dmitry Karasik <dmitry@karasik.eu.org>
 
 =cut
