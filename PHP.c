@@ -1,5 +1,5 @@
 /*
-$Id: PHP.c,v 1.19 2010/12/06 09:25:27 dk Exp $
+$Id: PHP.c,v 1.20 2011/07/26 07:55:10 dk Exp $
 */
 #include "PHP.h"
 
@@ -14,7 +14,12 @@ static HV *z_objects = NULL; 	/* SV => zval ; the hash accounts for zrefcount */
 static SV *ksv = NULL;		/* local SV for key storage */
 static SV *stdout_hook = NULL;/* if non-null, is a callback for stdout */
 static SV *stderr_hook = NULL;/* if non-null, is a callback for stderr */
+static SV *header_hook = NULL;/* if non-null, is a callback for header */
 static char * eval_ptr = NULL;
+static char *post_content = NULL;
+static int post_content_index = -1;
+static int post_content_length = -1;
+
 /*
 these macros allow re-entrant accumulation of php errors
 to be reported, if any, by croak() 
@@ -28,6 +33,8 @@ to be reported, if any, by croak()
 #define PHP_EVAL_LEAVE eval_ptr = old_eval_ptr
 #define PHP_EVAL_CROAK(default_message)	
 
+void init_rfc1867();
+void deinit_rfc1867();
 
 void 
 debug( char * format, ...)
@@ -272,7 +279,7 @@ sv2zval( SV * sv, zval * zarg, int suggested_type )
 			DEBUG("%s: STRING %s", "sv2zval", c);
 			ZVAL_STRINGL( zarg, c, len, 1);
 			break;
-		} 
+		}
 		default:
 			DEBUG("%s: cannot convert scalar %d/%s", "sv2zval", SvTYPE( sv), SvPV( sv, len));
 			return 0;
@@ -580,6 +587,58 @@ XS(PHP_eval)
 	XSRETURN_EMPTY;
 }
 
+/* eval php code with return, croak on failure */
+XS(PHP_eval_return)
+{
+	dXSARGS;
+	int ret = FAILURE;
+	zval * zret;
+	SV * retsv;
+	dPHP_EVAL;
+
+	STRLEN na;
+	(void)items;
+
+	DEBUG("PHP::eval_return(%d args)", items);
+	if ( items < 0 || items > 2)
+		croak("PHP::eval_return: expect 1 parameter");
+
+	MAKE_STD_ZVAL(zret);
+	zret-> type = IS_NULL;
+	
+	PHP_EVAL_ENTER;
+	zend_try {
+		ret = zend_eval_string( SvPV( ST(0), na), zret, "Embedded code" TSRMLS_CC);
+	} zend_end_try();
+	PHP_EVAL_LEAVE;
+
+#if PHP_MAJOR_VERSION > 4
+	if ( EG(exception)) {
+		zval_ptr_dtor(&EG(exception));
+		EG(exception) = NULL;
+		ret = FAILURE; /* assert that exception doesn't go unnoticed */
+	}
+#endif
+
+	if ( ret == FAILURE) {
+		zval_ptr_dtor(&zret);
+		croak( "%s", eval_buf[0] ? eval_buf : "PHP::eval_return failed");
+	} else if ( eval_buf[0])
+		warn("%s", eval_buf);
+	
+	SPAGAIN;
+	SP -= items;
+
+	if ( !( retsv = zval2sv( zret))) {
+		warn("PHP::eval_return: eval return value cannot be converted\n");
+		retsv = &PL_sv_undef;
+	}
+	retsv = sv_2mortal( retsv);
+	XPUSHs( retsv);
+	zval_ptr_dtor( &zret);
+	PUTBACK;
+}
+
 /* get and set various options */
 XS(PHP_options)
 {
@@ -600,6 +659,7 @@ XS(PHP_options)
 		PUSHs( sv_2mortal( newSVpv( "debug", 5)));
 		PUSHs( sv_2mortal( newSVpv( "stdout", 6)));
 		PUSHs( sv_2mortal( newSVpv( "stderr", 6)));
+		PUSHs( sv_2mortal( newSVpv( "header", 6)));
 		PUSHs( sv_2mortal( newSVpv( "version", 7)));
 		return;
 	case 1:
@@ -616,11 +676,13 @@ XS(PHP_options)
 				opt_debug = SvIV( ST( 1));
 			}
 		} else if ( 
+			strcmp( c, "header") == 0 ||
 			strcmp( c, "stdout") == 0 ||
 			strcmp( c, "stderr") == 0
 			) {
 			SV ** ptr = ( strcmp( c, "stdout") == 0) ? 
-				&stdout_hook : &stderr_hook;
+				&stdout_hook : (strcmp( c, "stderr" ) == 0
+				? &stderr_hook : &header_hook);
 			if ( items == 1) {
 				SPAGAIN;
 				SP -= items;
@@ -722,14 +784,62 @@ mod_deactivate(TSRMLS_D)
 	return SUCCESS;
 }
 
+static int
+mod_header_handler(sapi_header_struct *sapi_header, sapi_header_op_enum op,
+		   sapi_headers_struct *sapi_headers TSRMLS_DC)
+{
+	if (sapi_header && sapi_header->header_len && header_hook) {
+		dSP;
+		ENTER;
+		SAVETMPS;
+		PUSHMARK(sp);
+		XPUSHs(sv_2mortal(newSVpvn(sapi_header->header,sapi_header->header_len)));
+		PUTBACK;
+		perl_call_sv( header_hook, G_DISCARD );
+		SPAGAIN;
+		FREETMPS;
+		LEAVE;
+		return SUCCESS;
+	}
+	return FAILURE;
+}
+
+XS(PHP_set_php_input)
+{
+	dXSARGS;
+	(void) items;
+	if (items != 1) {
+		croak("PHP_set_php_input: expect exactly 1 input!");
+	}
+	post_content = SvPV(ST(0), post_content_length);
+	post_content_index = 0;
+}
+
+static int
+mod_read_post(char *buffer, uint count_bytes TSRMLS_DC)
+{
+	int old_index = post_content_index;
+	if (NULL == post_content) {
+		return 0;
+	}
+	while (post_content_index < post_content_length &&
+	       post_content_index - old_index < count_bytes) {
+		buffer[post_content_index - old_index] = post_content[post_content_index];
+		post_content_index++;
+	}
+	if (post_content_index >= post_content_length) {
+		post_content = NULL; /* memory leak here? */
+		post_content_length = 0;
+	}
+	return post_content_index - old_index;
+}
+
 /* stop PHP embedded module */
 XS(PHP_done)
 {
 	dXSARGS;
 	(void)items;
-
 	initialized = 0;
-
 	hv_destroy_zval( z_objects);
 	sv_free( ksv);
 	z_objects = NULL;
@@ -743,10 +853,83 @@ XS(PHP_done)
 		stderr_hook = NULL;
 	}
 
+#if PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION < 4
 	php_end_ob_buffers(1 TSRMLS_CC);
+#else
+	php_output_end_all(TSRMLS_C);
+#endif
+	deinit_rfc1867();
 	php_embed_shutdown(TSRMLS_C);
 	DEBUG("PHP::done");
 	XSRETURN_EMPTY;
+}
+
+XS(PHP_assign_global)
+{
+	dXSARGS;
+	char *varname;
+	zval *zv;
+	(void)items;
+
+	if (items != 2)
+		croak("PHP_assign_global: expect exactly 2 inputs");
+
+	ALLOC_ZVAL(zv);
+	if (!sv2zval(ST(1), zv, -1)) {
+		FREE_ZVAL(zv);
+		croak("PHP::assign_global: parameter 1 is of unsupported type and cannot be passed"); 
+	}
+
+	varname = SvPV_nolen(ST(0));
+	ZEND_SET_GLOBAL_VAR(varname, zv);
+}
+
+
+/*
+ * rfc1867 functions -- on file upload, PHP writes the uploaded file
+ * to a temporary location and adds the temporary filename to an
+ * internal hashtable -- see rfc1867_post_handler() in main/rfc1867.c .
+ * PHP's  is_uploaded_file()  function checks this internal hash
+ * to make sure that the named file was uploaded properly. 
+ *
+ * The next few functions provide a mechanism to spoof entries to
+ * PHP's hashtable. This will be necessary to support uploaded
+ * files in Perl (say, CGI or Catalyst) but making it appear to
+ * the PHP interpreter that they were uploaded properly in PHP.
+ */ 
+
+XS(PHP_spoof_rfc1867)
+{
+	dXSARGS;
+	char *temp_filename;
+	(void)items;
+
+	if (items != 1)
+		croak("PHP_spoof_rfc1867: expect exactly 1 input");
+	temp_filename = SvPV_nolen(ST(0));
+	zend_hash_add(SG(rfc1867_uploaded_files), temp_filename, strlen(temp_filename) + 1, 
+		      &temp_filename, sizeof(char *), NULL);
+}
+
+void init_rfc1867()
+{
+	HashTable *uploaded_files = NULL;
+
+	ALLOC_HASHTABLE(uploaded_files);
+	// free_estring  can cause seg fault during php_embed_shutdown.
+	// hopefully this is not a significant memory leak
+//	zend_hash_init(uploaded_files, 5, NULL, (dtor_func_t) free_estring, 0);
+	zend_hash_init(uploaded_files, 5, NULL, NULL, 0);
+	SG(rfc1867_uploaded_files) = uploaded_files;
+}
+
+void deinit_rfc1867()
+{
+	if (SG(rfc1867_uploaded_files)) {
+		//zend_hash_destroy(SG(rfc1867_uploaded_files));  // memory leak?
+		FREE_HASHTABLE(SG(rfc1867_uploaded_files));
+		SG(rfc1867_uploaded_files) = NULL;
+	}
 }
 
 /* initialization section */
@@ -773,6 +956,8 @@ XS( boot_PHP)
 	sapi_module. log_message	= mod_log_message;
 	sapi_module. ub_write		= mod_ub_write;
 	sapi_module. deactivate		= mod_deactivate;
+	sapi_module. header_handler     = mod_header_handler;
+	sapi_module. read_post          = mod_read_post;
 
 	php_output_startup();
 	php_output_activate(TSRMLS_C);
@@ -785,8 +970,14 @@ XS( boot_PHP)
 	
 	newXS( "PHP::exec", PHP_exec, "PHP");
 	newXS( "PHP::eval", PHP_eval, "PHP");
+	newXS( "PHP::eval_return", PHP_eval_return, "PHP");
 	
 	newXS( "PHP::stringify", PHP_stringify, "PHP");
+	
+	newXS( "PHP::_reset", boot_PHP, "PHP" );
+	newXS( "PHP::_assign_global", PHP_assign_global, "PHP");
+	newXS( "PHP::set_php_input", PHP_set_php_input, "PHP");
+	newXS( "PHP::_spoof_rfc1867", PHP_spoof_rfc1867, "PHP");
 	
 	newXS( "PHP::Entity::DESTROY", PHP_Entity_DESTROY, "PHP::Entity");
 	newXS( "PHP::Entity::link", PHP_Entity_link, "PHP::Entity");
@@ -795,6 +986,7 @@ XS( boot_PHP)
 	newXS( "PHP::Object::_new", PHP_Object__new, "PHP::Object");
 
 	register_PHP_Array();
+	init_rfc1867();
 
 	initialized = 1;
 	
@@ -802,6 +994,7 @@ XS( boot_PHP)
 	
 	XSRETURN(1);
 }
+
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,18 @@
 Revision history for Perl extension PHP.
 
+0.14  23 Jul 2012 (mob)
+        - mechanism to update internal hash and make  is_uploaded_file()
+          return true for files uploaded outside of PHP
+	- mechanism to pass post content and set up php://input stream
+        - fix PHP::assign_global for all superglobals
+
+0.13  04 Mar 2012 (mob)
+        - added PHP::__reset and PHP::assign_global functions
+        - added PHP::options(header => ...) callback
+
+0.12  10 Dec 2010
+        - support PHP v5.2 and v5.3
+
 0.11  09 Feb 2007
 	- back-compat for php4
 

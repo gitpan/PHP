@@ -16,6 +16,9 @@ SYNOPSIS
             function print_val(\$arr,\$val) {
                     echo \$arr[\$val];
             }
+
+            # evaluate PHP expressions
+            $answer = PHP::eval_return('7*(1+2+3);');
         
             class TestClass {
                     function TestClass ( $param ) {}
@@ -145,6 +148,10 @@ API
 
             Default: undef
 
+        header $callback
+            callback when PHP header() function is called, when PHP wants
+            to set a response header
+
         version
             Read-only option; returns the version of PHP library compiled
             with .
@@ -194,3 +201,4 @@ COPYRIGHT
 AUTHOR
     Dmitry Karasik <dmitry@karasik.eu.org>
 
+ 

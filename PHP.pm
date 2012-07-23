@@ -1,6 +1,6 @@
 package PHP;
 
-# $Id: PHP.pm,v 1.27 2007/02/12 11:00:48 dk Exp $
+# $Id: PHP.pm,v 1.28 2011/07/26 07:35:13 dk Exp $
 
 use strict;
 require DynaLoader;
@@ -10,7 +10,7 @@ use vars qw($VERSION $v5 @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.12';
+$VERSION = '0.14';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -26,8 +26,52 @@ sub include	{ PHP::eval( "include('$_[0]');") }
 sub require	{ PHP::eval( "require('$_[0]');") }
 sub include_once{ PHP::eval( "include_once('$_[0]');") }
 sub require_once{ PHP::eval( "require_once('$_[0]');") }
+sub __reset     { no warnings 'redefine'; PHP::done(); PHP::_reset(); }
 
 sub array       { PHP::Array-> new(shift) }
+
+our %_seen_zvals;
+
+sub assign_global
+{
+	my ($varname, $value) = @_;
+	local %_seen_zvals;
+	if ($varname eq '_REQUEST' || $varname eq '_SERVER' || $varname eq '_ENV') {
+		# don't know why this works, but assignment to these superglobals won't
+		# take without this step.
+		PHP::eval( "\$$varname;" );
+	}
+	PHP::_assign_global($varname, _to_zval($value));
+}
+
+sub _to_zval
+{
+	require Scalar::Util;
+	my $value = shift;
+
+	my $reftype = Scalar::Util::reftype($value);
+	$value = undef if ref(\$value) eq 'GLOB';
+	return $value unless $reftype;
+
+	return $_seen_zvals{"$value"} if exists $_seen_zvals{"$value"};
+
+	if ( $reftype eq 'SCALAR') {
+		$_seen_zvals{"$value"} = undef;
+		return $_seen_zvals{"$value"} = _to_zval($$value);
+	} elsif ( $reftype eq 'ARRAY') {
+		my $zval = PHP::array;
+		$_seen_zvals{"$value"} = $zval;
+		$zval->[$_] = _to_zval($value->[$_]) for 0 .. $#$value;
+		return $zval;
+	} elsif ( $reftype eq 'HASH') {
+		my $zval = PHP::array;
+		$_seen_zvals{"$value"} = $zval;
+		$zval->{$_} = _to_zval($value->{$_}) for keys %$value;
+		return $zval;
+	} else {
+		return undef;
+	}
+}
 
 my $LOADED = 1;
 
@@ -194,14 +238,14 @@ General use
 
 	# evaluate arbitrary PHP code; exception is thrown
 	# and can be caught via standard eval{}/$@ block 
-	PHP::eval(<<EVAL);
-	function print_val(\$arr,\$val) {
-		echo \$arr[\$val];
+	PHP::eval(<<'EVAL');
+	function print_val($arr,$val) {
+		echo $arr[$val];
 	}
 	
 	class TestClass {
 		function TestClass ( $param ) {}
-		function method(\$val) { return \$val + 1; }
+		function method($val) { return $val + 1; }
 	};
 	EVAL
 
@@ -255,7 +299,25 @@ Objects and properties
 =item eval $CODE
 
 Feeds embedded PHP interpreter with $CODE, throws an exception on
-failure.
+failure. This method does not have a return value. See also C<eval_return>.
+
+=item eval_return $CODE
+
+Same as C<eval> but returns the calculated value. This method can be used 
+for any expression where it would make sense if you put a C<"return "> in
+front of it. Otherwise you should use C<eval>.
+
+    $x = PHP::eval_return("13*86;");                           # ok
+    $x = PHP::eval_return('$var + func_that_returns_val();');  # ok
+    $x = PHP::eval_return('$var < 0 ? $var : array(7,8,9);');  # ok
+    $x = PHP::eval_return('function foo() { return 75;}');     # not ok
+    $x = PHP::eval_return('if ($var<0) { $bar=$foo; ');        # not ok
+    $x = PHP::eval_return('echo "This is a message";');        # not ok
+
+
+
+The PHP interpreter does an implicit prepend
+of "return " text to C<$CODE>, so beware.
 
 =item call FUNCTION ...
 
@@ -265,6 +327,13 @@ Returns exactly one value.
 =item include, include_once, require, require_once
 
 Shortcuts to the identical PHP constructs.
+
+=item assign_global NAME, VALUE
+
+Assigns the given VALUE to the global PHP variable C<$NAME>,
+converting Perl data types to PHP data types as necessary.
+VALUE may be a list reference, hash reference, scalar reference,
+or regular scalar.
 
 =item array [ $REFERENCE ]
 
@@ -344,11 +413,30 @@ when PHP decides to print something or complain, respectively.
 
 Default: undef
 
+=item header $callback
+
+Callback when PHP sets a response header with the PHP C<header()>
+function.
+
+Default: undef
+
 =item version
 
 Read-only option; returns the version of PHP library compiled with .
 
 =back
+
+=item PHP::set_php_input($string)
+
+Sets content for PHP applications that read from the C<<php://input>
+stream.
+
+=item PHP::_spoof_rfc1867($filename)
+
+Manipulates an internal hash in PHP so that PHP's C<is_uploaded_file>
+function will return true for the given filename. This can be helpful 
+when you have already manipulated PHP's global C<$_FILES> variable
+for an application that uploads files. But it is not always necessary.
 
 =back
 
