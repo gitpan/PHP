@@ -10,7 +10,7 @@ use vars qw($VERSION $v5 @ISA);
 # remove this or change to 0x00 of your OS croaks here
 sub dl_load_flags { 0x01 }
 
-$VERSION = '0.14';
+$VERSION = '0.15';
 bootstrap PHP $VERSION;
 
 PHP::options( debug => 1) if $ENV{P5PHPDEBUG}; 
@@ -416,7 +416,8 @@ Default: undef
 =item header $callback
 
 Callback when PHP sets a response header with the PHP C<header()>
-function.
+function. The callback will receive two arguments, corresponding to 
+the first two arguments of the PHP C<header()> function. 
 
 Default: undef
 

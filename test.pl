@@ -1,9 +1,20 @@
 #$Id: test.pl,v 1.14 2007/02/11 10:59:14 dk Exp $
 
-use Test::More tests => 76;
+use Test::More tests => 79;
 use strict;
 
-BEGIN { use_ok('PHP'); }
+# pre-test. bail out if PHP libraries are not installed on this system.
+
+
+
+BEGIN {
+    ok( eval "use PHP;1", 'use_ok PHP' );
+    if ($@ && $@ =~ /Can't locate loadable object for module PHP/) {
+	diag $@;
+	BAIL_OUT(
+	    "PHP libraries compiled for embedded SAPI not found" );
+    }
+}
 require_ok('PHP');
 
 # 3 
@@ -212,7 +223,7 @@ ok( $r && ref($r) && ref($r) eq 'PHP::Array' && $r->{cats} =~ /white meat/,
 
 # 36
 my @h36 = ();
-PHP::options( header => sub { push @h36, $_[0] } );
+PHP::options( header => sub { push @h36, $_[0]; } );
 PHP::eval('header("Subject: Payload");');
 PHP::eval_return('header("Header-X: This is a header");');
 ok( $h36[0] eq 'Subject: Payload' && $h36[1] =~ /This is a header/,
@@ -366,3 +377,13 @@ PHP::set_php_input("0123456789012345678\n" x 568);
 my $t76 = PHP::eval_return( 'file_get_contents("php://input")' );
 ok( $t76 eq "0123456789012345678\n" x 568,
     'post content avail in php://input' );
+
+# 77-79
+my ($t77,$t78);
+PHP::options( header => sub { ($t77,$t78) = @_ } );
+PHP::header("foo: bar", 1);
+ok($t77 eq 'foo: bar' && $t78 == 1, 'header callback receives 2 args');
+PHP::header("bar: foo", 0);
+ok($t77 eq 'bar: foo' && $t78 == 0, 'header callback receives replace arg');
+PHP::header("bar: foo");
+ok($t77 eq 'bar: foo' && $t78 == 1,'default replace arg is true');
